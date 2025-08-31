@@ -1,0 +1,86 @@
+# ==============================
+# Kitty Terminal Configuration
+# Pop!_OS — Gorgeous & Functional
+# ==============================
+
+## ---------- Fonts ----------
+font_family      JetBrainsMono Nerd Font
+bold_font        JetBrainsMono Nerd Font Bold
+italic_font      JetBrainsMono Nerd Font Italic
+bold_italic_font JetBrainsMono Nerd Font Bold Italic
+font_size        14.0
+adjust_line_height  115%
+
+## ---------- Cursor ----------
+cursor_shape     block
+cursor_blink_interval 0.6
+cursor_stop_blinking_after 5.0
+
+## ---------- Window & Padding ----------
+window_padding_width 12
+window_margin_width  4
+active_border_color   #8be9fd
+inactive_border_color #44475a
+draw_minimal_borders yes
+
+## ---------- Colors & Theme ----------
+background_opacity 0.95
+foreground #f8f8f2
+background #1e1e2e
+selection_foreground #282a36
+selection_background #bd93f9
+color0  #282a36
+color1  #ff5555
+color2  #50fa7b
+color3  #f1fa8c
+color4  #bd93f9
+color5  #ff79c6
+color6  #8be9fd
+color7  #f8f8f2
+color8  #44475a
+color9  #ff6e6e
+color10 #69ff94
+color11 #ffffa5
+color12 #d6acff
+color13 #ff92df
+color14 #a4ffff
+color15 #ffffff
+
+## ---------- Scrollback ----------
+scrollback_lines 10000
+wheel_scroll_multiplier 5.0
+touch_scroll_multiplier 2.0
+
+## ---------- Clipboard & Mouse ----------
+map ctrl+shift+c copy_to_clipboard
+map ctrl+shift+v paste_from_clipboard
+map ctrl+shift+t new_tab
+map ctrl+shift+w close_tab
+map ctrl+tab     next_tab
+map ctrl+shift+tab previous_tab
+
+# Enable right-click context menu for copy/paste
+mouse_right_click paste_from_clipboard
+mouse_middle_click paste_selection
+
+# Enable clickable URLs
+detect_urls yes
+open_url_with default
+
+# Sanitize pasted text (avoids accidental commands)
+sanitize_paste yes
+
+# Themes
+include dracula.conf
+
+## ---------- SSH Integration ----------
+allow_remote_control yes
+shell_integration   enabled
+# Automatically set tab title for SSH sessions
+tab_title_template "{title} — {cwd}"
+
+## ---------- Extra Features ----------
+enable_audio_bell no
+copy_on_select yes
+strip_trailing_spaces smart
+confirm_os_window_close 0
