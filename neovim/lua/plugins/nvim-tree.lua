@@ -1,0 +1,44 @@
+-- lua/plugins/nvim-tree.lua
+return {
+  "nvim-tree/nvim-tree.lua",
+  version = "*",
+  dependencies = { "nvim-tree/nvim-web-devicons" },
+  cmd = { "NvimTreeToggle", "NvimTreeFocus", "NvimTreeFindFile" },
+  keys = {
+    { "<leader>e",  "<cmd>NvimTreeToggle<CR>",    desc = "Toggle file explorer" },
+    { "<leader>o",  "<cmd>NvimTreeFindFile<CR>",  desc = "Reveal current file" },
+  },
+  opts = {
+    sort_by = "case_sensitive",
+    view = {
+      width = 30,
+      side = "left",
+    },
+    renderer = {
+      group_empty = true,
+    },
+    -- hide only .git; show other dotfiles (incl. .env)
+    filters = {
+      dotfiles = false,                -- don't hide all dotfiles
+      custom = { "^\\.git$" },         -- Lua pattern: hide .git dir/file
+    },
+    -- auto-close tree when opening a file from it
+    actions = {
+      open_file = {
+        quit_on_open = true,           -- close tree after opening a file
+      },
+    },
+    -- keep tree synced with the current file/cwd
+    update_focused_file = {
+      enable = true,                   -- highlight & reveal current file
+      update_root = false,             -- set true if you want root to follow file
+      ignore_list = {},
+    },
+    sync_root_with_cwd = true,
+    respect_buf_cwd = true,
+  },
+  config = function(_, opts)
+    require("nvim-tree").setup(opts)
+  end,
+}
+
