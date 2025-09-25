@@ -3,7 +3,7 @@ set -e
 
 # Paths
 SOURCE_DIR="$(pwd)"
-NVIM_SRC="$SOURCE_DIR/nvim"
+NVIM_SRC="$SOURCE_DIR/neovim"
 KITTY_SRC="$SOURCE_DIR/kitty"
 
 NVIM_DEST="$HOME/.config/nvim"
@@ -24,7 +24,7 @@ link_config() {
 }
 
 # Create symlinks
-link_config "$NVIM_SRC" "$NVIM_DEST"
 link_config "$KITTY_SRC" "$KITTY_DEST"
+link_config "$NVIM_SRC" "$NVIM_DEST"
 
 echo "Symlinks created successfully!"
