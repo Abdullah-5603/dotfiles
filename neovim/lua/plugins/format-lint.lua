@@ -25,6 +25,7 @@ return {
 				c = { "clang-format" },
 				cpp = { "clang-format" },
 				python = { "ruff", "black" },
+				blade = { "blade-formatter" },
 			},
 		},
 		config = function(_, opts)
