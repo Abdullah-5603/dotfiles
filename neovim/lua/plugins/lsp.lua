@@ -48,7 +48,13 @@ return {
 			pyright = {},
 			gopls = {},
 			rust_analyzer = {},
-			clangd = {},
+			clangd = {
+				cmd = { "clangd", "--background-index", "--clang-tidy" },
+				root_dir = require("lspconfig.util").root_pattern("Makefile", ".git"),
+				init_options = {
+					fallbackFlags = { "-Iinclude" },
+				},
+			},
 			html = {},
 			cssls = {},
 			jsonls = {},
