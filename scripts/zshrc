@@ -37,6 +37,7 @@ alias pset='sudo proton-switch'
 alias mysql='mariadb'
 alias sys_upgrade='sudo pacman -Syu'
 alias nginx-reload='sudo nginx -t && sudo nginx -s reload'
+alias ibus-setup='/usr/bin/python3 /usr/share/ibus/setup/main.py'
 
 # ─────────────────────────────────────────────
 # FZF Integration
