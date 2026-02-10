@@ -18,17 +18,44 @@ source $ZSH/oh-my-zsh.sh
 # ─────────────────────────────────────────────
 # Aliases
 # ─────────────────────────────────────────────
-alias ls='exa -l --no-time --no-filesize --icons --group-directories-first --color=always'
-alias ll='exa -lah --icons --group-directories-first --time-style=long-iso'
-alias cat='bat --paging=never'
+# Use eza (newer) or exa (older) for ls replacement
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza -l --no-time --no-filesize --icons --group-directories-first --color=always'
+    alias ll='eza -lah --icons --group-directories-first --time-style=long-iso'
+elif command -v exa >/dev/null 2>&1; then
+    alias ls='exa -l --no-time --no-filesize --icons --group-directories-first --color=always'
+    alias ll='exa -lah --icons --group-directories-first --time-style=long-iso'
+fi
+
+# Use bat for cat (handle batcat on Debian/Ubuntu)
+if command -v bat >/dev/null 2>&1; then
+    alias cat='bat --paging=never'
+elif command -v batcat >/dev/null 2>&1; then
+    alias cat='batcat --paging=never'
+fi
 alias grep='grep --color=auto'
 alias c='clear'
 alias ..='cd ..'
 alias ...='cd ../..'
-alias mupdate='sudo pacman -Syu'
-alias minstall='sudo pacman -S'
-alias mremove='sudo pacman -Rns'
-alias fixlock='sudo rm /var/lib/pacman/db.lck'
+# Package manager aliases (OS-aware)
+if command -v pacman >/dev/null 2>&1; then
+    alias mupdate='sudo pacman -Syu'
+    alias minstall='sudo pacman -S'
+    alias mremove='sudo pacman -Rns'
+    alias fixlock='sudo rm /var/lib/pacman/db.lck'
+elif command -v apt >/dev/null 2>&1; then
+    alias mupdate='sudo apt update && sudo apt upgrade'
+    alias minstall='sudo apt install'
+    alias mremove='sudo apt remove'
+elif command -v dnf >/dev/null 2>&1; then
+    alias mupdate='sudo dnf upgrade'
+    alias minstall='sudo dnf install'
+    alias mremove='sudo dnf remove'
+elif command -v brew >/dev/null 2>&1; then
+    alias mupdate='brew update && brew upgrade'
+    alias minstall='brew install'
+    alias mremove='brew uninstall'
+fi
 alias please='sudo $(history -p !!)'
 alias editz='vim ~/.zshrc && source ~/.zshrc'
 alias reload='source ~/.zshrc'
@@ -73,16 +100,34 @@ source ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting/zsh-sy
 # Misc Shortcuts
 # ─────────────────────────────────────────────
 alias cls='clear && printf "\033c"'
-alias paclog='cat /var/log/pacman.log | less'
-alias findpkg='pkgfile -v'
+
+# Arch-specific aliases
+if command -v pacman >/dev/null 2>&1; then
+    alias paclog='cat /var/log/pacman.log | less'
+    alias findpkg='pkgfile -v'
+fi
 
 export PATH="$PATH:/home/nprime/.config/composer/vendor/bin"
 
+# ─────────────────────────────────────────────
+# NVM (Node Version Manager)
+# ─────────────────────────────────────────────
 export NVM_DIR="$HOME/.config/nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# ─────────────────────────────────────────────
+# PATH Configuration
+# ─────────────────────────────────────────────
 export PATH="$HOME/.local/bin:$PATH"
-export PATH="$HOME/.local/bin:$PATH"
+
+# ─────────────────────────────────────────────
+# Terminal & Display Settings
+# ─────────────────────────────────────────────
 export TERM=xterm-256color
-export QT_QPA_PLATFORM=wayland
-export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+
+# Wayland settings (only set if running Wayland)
+if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
+    export QT_QPA_PLATFORM=wayland
+    export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+fi
