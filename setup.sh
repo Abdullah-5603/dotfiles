@@ -26,6 +26,8 @@ KITTY_DEST="$HOME/.config/kitty"
 ZSH_DEST="$HOME/.zshrc"
 NGINX_SITE_SRC="$SCRIPTS_SRC/nginx-site.sh"
 NGINX_SITE_DEST="/usr/local/bin/nginx-site"
+CLEANUP_SRC="$SCRIPTS_SRC/cleanup.sh"
+CLEANUP_DEST="/usr/local/bin/cleanup"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions
@@ -578,6 +580,12 @@ create_symlinks() {
     if [[ -f "$NGINX_SITE_SRC" ]]; then
         link_config "$NGINX_SITE_SRC" "$NGINX_SITE_DEST"
         sudo chmod +x "$NGINX_SITE_DEST" 2>/dev/null || true
+    fi
+
+    # Cleanup script
+    if [[ -f "$CLEANUP_SRC" ]]; then
+        link_config "$CLEANUP_SRC" "$CLEANUP_DEST"
+        sudo chmod +x "$CLEANUP_DEST" 2>/dev/null || true
     fi
 }
 

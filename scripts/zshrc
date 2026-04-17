@@ -131,3 +131,28 @@ if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
     export QT_QPA_PLATFORM=wayland
     export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 fi
+
+# Ibus for bangla writing
+export GTK_IM_MODULE=ibus
+export QT_IM_MODULE=ibus
+export XMODIFIERS=@im=ibus
+
+# Created by `pipx` on 2026-03-07 07:45:33
+export PATH="$PATH:/home/nprime/.local/bin"
+export PYTHONPATH="$HOME/esp-idf-nvs/components/nvs_flash/nvs_partition_generator:$PYTHONPATH"
+
+
+# bun completions
+[ -s "/home/nprime/.bun/_bun" ] && source "/home/nprime/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+
+. "$HOME/.local/share/../bin/env"
+
+alias claude-mem='/home/nprime/.bun/bin/bun "/home/nprime/.claude/plugins/cache/thedotmack/claude-mem/10.6.2/scripts/worker-service.cjs"'
+export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+alias obsidian-gui='~/Applications/Obsidian.AppImage --no-sandbox &'
