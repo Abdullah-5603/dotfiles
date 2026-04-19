@@ -1,5 +1,17 @@
 local map = vim.keymap.set
 
+-- Helper function to get the PascalCase filename
+local function get_pascal_name()
+	local name = vim.fn.expand("%:t:r")
+	-- 1. Capitalize the first letter
+	name = name:gsub("^%l", string.upper)
+	-- 2. Find underscores followed by a letter and uppercase that letter
+	name = name:gsub("_(%l)", string.upper)
+	-- 3. Remove the underscores
+	name = name:gsub("_", "")
+	return name
+end
+
 -- When text is wrapped, m by terminal rows, not line, unless a count is provided.
 -- example of key-maps map(mode, mapping_key, execute_command, options)
 map("n", "k", "v:count == 0 ? 'gk' : 'k'", { expr = true })
@@ -36,3 +48,24 @@ map("n", "<C-j>", ":m .+1<CR>==")
 map("n", "<C-k>", ":m .-2<CR>==")
 map("v", "<C-j>", ":m '>+1<CR>gv=gv")
 map("v", "<C-k>", ":m '<-2<CR>gv=gv")
+
+-- custom code shortcuts
+map("i", "clg", [[console.log({  })<Left><Left><Left>]])
+
+-- 1. rfc (Standard)
+map("i", "rfc", function()
+	local name = get_pascal_name()
+	return "function " .. name .. "() {\n  return (\n    <div>" .. name .. "</div>\n  )\n}"
+end, { expr = true })
+
+-- 2. rfce (Export)
+map("i", "rfce", function()
+	local name = get_pascal_name()
+	return "export function " .. name .. "() {\n  return (\n    <div>" .. name .. "</div>\n  )\n}"
+end, { expr = true })
+
+-- 3. rfced (Export Default)
+map("i", "rfced", function()
+	local name = get_pascal_name()
+	return "export default function " .. name .. "() {\n  return (\n    <div>" .. name .. "</div>\n  )\n}"
+end, { expr = true })

@@ -10,8 +10,8 @@ return {
 
 			-- Formatters / Linters
 			-- JS/TS/HTML/CSS/JSON
-			"prettierd",
-			"prettier",
+			-- "prettierd",
+			-- "prettier",
 			"eslint_d",
 
 			-- Lua

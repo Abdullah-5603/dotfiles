@@ -2,12 +2,12 @@
 return {
 	"catppuccin/nvim",
 	name = "catppuccin",
-	-- enabled = false,
+	enabled = false,
 	lazy = false,
 	priority = 1000,
 	config = function()
 		require("catppuccin").setup({
-			flavour = "mocha", -- latte, frappe, macchiato, mocha
+			flavour = "mocha",     -- latte, frappe, macchiato, mocha
 			transparent_background = false, -- true for terminal background
 			integrations = {
 				cmp = true,
