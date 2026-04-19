@@ -21,7 +21,6 @@ return {
 				html = { "prettierd", "prettier" },
 				css = { "prettierd", "prettier" },
 				scss = { "prettierd", "prettier" },
-				markdown = { "prettierd", "prettier" },
 				yaml = { "prettierd", "prettier" },
 				toml = { "taplo" },
 				sh = { "shfmt" },
