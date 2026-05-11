@@ -69,3 +69,9 @@ map("i", "rfced", function()
 	local name = get_pascal_name()
 	return "export default function " .. name .. "() {\n  return (\n    <div>" .. name .. "</div>\n  )\n}"
 end, { expr = true })
+
+-- Copy full file path to system clipboard
+map("n", "<leader>fp", function()
+	vim.fn.setreg("+", vim.fn.expand("%:p"))
+	print("Copied path: " .. vim.fn.expand("%:p"))
+end, { desc = "Copy full file path" })

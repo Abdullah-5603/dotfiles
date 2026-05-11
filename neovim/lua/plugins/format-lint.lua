@@ -5,14 +5,26 @@ return {
 		"stevearc/conform.nvim",
 		event = { "BufWritePre" },
 		opts = {
-			format_on_save = { timeout_ms = 1000, lsp_fallback = true },
+			format_on_save = function(bufnr)
+				local eslint_filetypes = {
+					astro = true,
+					htmlangular = true,
+					javascript = true,
+					javascriptreact = true,
+					svelte = true,
+					typescript = true,
+					typescriptreact = true,
+					vue = true,
+				}
+
+				if eslint_filetypes[vim.bo[bufnr].filetype] then
+					return
+				end
+
+				return { timeout_ms = 1000, lsp_fallback = true }
+			end,
 			formatters_by_ft = {
 				lua = { "stylua" },
-				---- Enable these for auto-fixing!
-				javascript = { "eslint" },
-				typescript = { "eslint" },
-				javascriptreact = { "eslint" },
-				typescriptreact = { "eslint" },
 				--	javascript = { "prettierd", "prettier" },
 				-- typescript = { "prettierd", "prettier" },
 				-- javascriptreact = { "prettierd", "prettier" },
@@ -48,10 +60,6 @@ return {
 		config = function()
 			local lint = require("lint")
 			lint.linters_by_ft = {
-				javascript = { "eslint_d" },
-				typescript = { "eslint_d" },
-				javascriptreact = { "eslint_d" },
-				typescriptreact = { "eslint_d" },
 				markdown = { "markdownlint" },
 				yaml = { "yamllint" },
 				dockerfile = { "hadolint" },

@@ -29,7 +29,9 @@ return {
 				"yamlls",
 				"dockerls",
 				"intelephense",
+				"eslint",
 			},
+			automatic_installation = true,
 		},
 		config = function(_, opts)
 			require("mason-lspconfig").setup(opts)
