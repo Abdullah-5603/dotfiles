@@ -75,3 +75,8 @@ map("n", "<leader>fp", function()
 	vim.fn.setreg("+", vim.fn.expand("%:p"))
 	print("Copied path: " .. vim.fn.expand("%:p"))
 end, { desc = "Copy full file path" })
+
+-- Fold controls
+map("n", "<leader>za", "za", { desc = "Toggle fold under cursor" })
+map("n", "<leader>zM", "zM", { desc = "Collapse all folds" })
+map("n", "<leader>zR", "zR", { desc = "Expand all folds" })

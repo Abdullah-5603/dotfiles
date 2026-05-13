@@ -3,6 +3,16 @@ return {
   "nvim-treesitter/nvim-treesitter",
   build = ":TSUpdate", -- auto update parsers
   event = { "BufReadPost", "BufNewFile" },
+  cmd = {
+    "TSInstall",
+    "TSInstallInfo",
+    "TSUpdate",
+    "TSUninstall",
+    "TSBufEnable",
+    "TSBufDisable",
+    "TSBufToggle",
+    "TSModuleInfo",
+  },
   opts = {
     ensure_installed = {
       "lua", "vim", "vimdoc", "bash",

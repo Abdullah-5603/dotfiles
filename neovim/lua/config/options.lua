@@ -44,3 +44,18 @@ optset.confirm = true
 optset.undofile = true -- Remember undo history
 optset.backup = true -- automatically save a backup file
 optset.backupdir:remove(".") -- keep backup out of the current directory
+
+-- Treesitter-based folding (VS Code-like expand/collapse workflow)
+optset.foldmethod = "expr"
+optset.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+optset.foldenable = true
+optset.foldlevel = 99
+optset.foldlevelstart = 99
+optset.foldcolumn = "auto:2"
+optset.fillchars:append({
+	foldopen = "▼",
+	foldclose = "▶",
+	fold = " ",
+	foldsep = " ",
+	foldinner = " ",
+})
