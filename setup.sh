@@ -3,7 +3,11 @@ set -e
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Dotfiles Setup Script
-# Automatically detects OS and installs all necessary dependencies
+# Auto-detects the Linux distribution (or macOS) and installs everything needed.
+#
+# Supported package managers: pacman, apt, dnf/yum, zypper, apk, brew
+# Distro families are resolved from /etc/os-release (ID + ID_LIKE), with a
+# fallback that probes for an available package manager.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Colors for output
@@ -29,25 +33,19 @@ NGINX_SITE_DEST="/usr/local/bin/nginx-site"
 CLEANUP_SRC="$SCRIPTS_SRC/cleanup.sh"
 CLEANUP_DEST="/usr/local/bin/cleanup"
 
+# Populated by detect_os
+OS=""          # raw distro id (arch, ubuntu, fedora, macos, ...)
+OS_FAMILY=""   # normalized family (arch, debian, rhel, suse, alpine, macos)
+PKG=""         # package manager (pacman, apt, dnf, yum, zypper, apk, brew)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions
 # ─────────────────────────────────────────────────────────────────────────────
 
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}[OK]${NC} $1"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+log_info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 log_step() {
     echo -e "\n${CYAN}══════════════════════════════════════════════════════════════${NC}"
@@ -59,7 +57,7 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Run a command and retry with sudo when necessary
+# Run a command, retrying with sudo when it fails and sudo is available.
 run_cmd() {
     local cmd=$1
     shift
@@ -76,241 +74,232 @@ run_cmd() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OS Detection
+# OS / Distro Detection
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Map a package manager to a normalized family name.
+pkg_to_family() {
+    case "$1" in
+        pacman) echo "arch" ;;
+        apt) echo "debian" ;;
+        dnf|yum) echo "rhel" ;;
+        zypper) echo "suse" ;;
+        apk) echo "alpine" ;;
+        brew) echo "macos" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+# Last-resort detection: probe for whichever package manager is installed.
+detect_pkg_by_probe() {
+    for pm in pacman apt-get dnf yum zypper apk brew; do
+        if command_exists "$pm"; then
+            case "$pm" in
+                apt-get) echo "apt" ;;
+                *) echo "$pm" ;;
+            esac
+            return 0
+        fi
+    done
+    echo "unknown"
+}
 
 detect_os() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        OS="macos"
-        PACKAGE_MANAGER="brew"
-    elif [[ -f /etc/arch-release ]]; then
-        OS="arch"
-        PACKAGE_MANAGER="pacman"
-    elif [[ -f /etc/debian_version ]]; then
-        OS="debian"
-        PACKAGE_MANAGER="apt"
-    elif [[ -f /etc/fedora-release ]]; then
-        OS="fedora"
-        PACKAGE_MANAGER="dnf"
-    elif [[ -f /etc/redhat-release ]]; then
-        OS="rhel"
-        PACKAGE_MANAGER="dnf"
-    elif [[ -f /etc/opensuse-release ]] || [[ -f /etc/SUSE-brand ]]; then
-        OS="opensuse"
-        PACKAGE_MANAGER="zypper"
-    else
-        OS="unknown"
-        PACKAGE_MANAGER="unknown"
+        OS="macos"; OS_FAMILY="macos"; PKG="brew"
+        log_info "Detected OS: macOS (Package Manager: brew)"
+        return
     fi
 
-    log_info "Detected OS: $OS (Package Manager: $PACKAGE_MANAGER)"
+    # Prefer the freedesktop standard /etc/os-release.
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck source=/dev/null
+        . /etc/os-release
+        OS="${ID:-unknown}"
+        local likes=" ${ID:-} ${ID_LIKE:-} "
+
+        if   [[ "$likes" == *" arch "* || "$likes" == *" archlinux "* ]]; then
+            OS_FAMILY="arch";   PKG="pacman"
+        elif [[ "$likes" == *" debian "* || "$likes" == *" ubuntu "* ]]; then
+            OS_FAMILY="debian"; PKG="apt"
+        elif [[ "$likes" == *" fedora "* || "$likes" == *" rhel "* || "$likes" == *" centos "* ]]; then
+            OS_FAMILY="rhel";   PKG="$(command_exists dnf && echo dnf || echo yum)"
+        elif [[ "$likes" == *" suse "* || "$likes" == *" opensuse "* ]]; then
+            OS_FAMILY="suse";   PKG="zypper"
+        elif [[ "$likes" == *" alpine "* ]]; then
+            OS_FAMILY="alpine"; PKG="apk"
+        else
+            # Unknown ID/ID_LIKE — fall back to probing the package manager.
+            PKG="$(detect_pkg_by_probe)"
+            OS_FAMILY="$(pkg_to_family "$PKG")"
+        fi
+    else
+        # No os-release (very minimal systems) — probe.
+        OS="unknown"
+        PKG="$(detect_pkg_by_probe)"
+        OS_FAMILY="$(pkg_to_family "$PKG")"
+    fi
+
+    log_info "Detected OS: $OS (family: $OS_FAMILY, package manager: $PKG)"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Package Installation Functions
+# Package Manager Abstraction
 # ─────────────────────────────────────────────────────────────────────────────
 
-install_package() {
-    local package=$1
-    local package_alt=${2:-$1}  # Alternative name for different package managers
+pkg_update() {
+    log_step "Updating Package Metadata"
+    case "$PKG" in
+        pacman) sudo pacman -Sy ;;
+        apt)    sudo apt-get update ;;
+        dnf)    sudo dnf check-update || true ;;
+        yum)    sudo yum check-update || true ;;
+        zypper) sudo zypper refresh ;;
+        apk)    sudo apk update ;;
+        brew)   brew update ;;
+        *)      log_warning "Unknown package manager; skipping metadata update" ;;
+    esac
+    log_success "Package metadata updated"
+}
 
-    case $PACKAGE_MANAGER in
-        pacman)
-            sudo pacman -S --noconfirm --needed "$package"
-            ;;
-        apt)
-            sudo apt-get install -y "$package_alt"
-            ;;
-        dnf)
-            sudo dnf install -y "$package_alt"
-            ;;
-        zypper)
-            sudo zypper install -y "$package_alt"
-            ;;
-        brew)
-            brew install "$package"
-            ;;
-        *)
-            log_error "Unknown package manager"
-            return 1
-            ;;
+# Install one or more literal package names for the current package manager.
+# Returns non-zero on failure (caller decides whether that is fatal).
+pkg_install_raw() {
+    case "$PKG" in
+        pacman) sudo pacman -S --noconfirm --needed "$@" ;;
+        apt)    sudo apt-get install -y "$@" ;;
+        dnf)    sudo dnf install -y "$@" ;;
+        yum)    sudo yum install -y "$@" ;;
+        zypper) sudo zypper install -y "$@" ;;
+        apk)    sudo apk add "$@" ;;
+        brew)   brew install "$@" ;;
+        *)      return 1 ;;
     esac
 }
 
-update_system() {
-    log_step "Updating System Package Lists"
+# Install a logical tool, choosing the right package name per package manager.
+# Usage: install_tool <friendly> <check_cmd> <arch> <apt> <dnf> <zypper> <apk> <brew>
+# Pass an empty string for package managers where the tool is unavailable.
+# Honors the "best-effort + warn" strategy: a missing package is a warning, not
+# a fatal error.
+install_tool() {
+    local friendly="$1" check="$2" arch="$3" apt="$4" dnf="$5" zypper="$6" apk="$7" brew="$8"
 
-    case $PACKAGE_MANAGER in
-        pacman)
-            sudo pacman -Sy
-            ;;
-        apt)
-            sudo apt-get update
-            ;;
-        dnf)
-            sudo dnf check-update || true
-            ;;
-        zypper)
-            sudo zypper refresh
-            ;;
-        brew)
-            brew update
-            ;;
+    if [[ -n "$check" ]] && command_exists "$check"; then
+        log_success "$friendly already installed"
+        return 0
+    fi
+
+    local pkg=""
+    case "$PKG" in
+        pacman) pkg="$arch" ;;
+        apt)    pkg="$apt" ;;
+        dnf|yum) pkg="$dnf" ;;
+        zypper) pkg="$zypper" ;;
+        apk)    pkg="$apk" ;;
+        brew)   pkg="$brew" ;;
     esac
 
-    log_success "Package lists updated"
+    if [[ -z "$pkg" ]]; then
+        log_warning "$friendly is not available for $PKG — skipping"
+        return 1
+    fi
+
+    log_info "Installing $friendly ($pkg)..."
+    if pkg_install_raw "$pkg"; then
+        log_success "$friendly installed"
+        return 0
+    else
+        log_warning "Could not install $friendly via $PKG — skipping"
+        return 1
+    fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install Core Dependencies
+# Core Dependencies
 # ─────────────────────────────────────────────────────────────────────────────
 
 install_core_deps() {
     log_step "Installing Core Dependencies"
 
-    local packages=()
+    # Install the essentials explicitly so package names are correct per distro.
+    # Each call is best-effort: a missing package warns and continues.
+    install_tool "git"        git        git           git                git        git        git        git        || true
+    install_tool "curl"       curl       curl          curl               curl       curl       curl       curl       || true
+    install_tool "wget"       wget       wget          wget               wget       wget       wget       wget       || true
+    install_tool "unzip"      unzip      unzip         unzip              unzip      unzip      unzip      unzip      || true
+    install_tool "tar"        tar        tar           tar                tar        tar        tar        ""         || true
+    install_tool "fontconfig" fc-cache   fontconfig    fontconfig         fontconfig fontconfig fontconfig ""         || true
 
-    case $PACKAGE_MANAGER in
-        pacman)
-            packages=(git curl wget unzip tar gzip)
-            ;;
-        apt)
-            packages=(git curl wget unzip tar gzip build-essential)
-            ;;
-        dnf)
-            packages=(git curl wget unzip tar gzip gcc gcc-c++ make)
-            ;;
-        zypper)
-            packages=(git curl wget unzip tar gzip)
-            ;;
-        brew)
-            packages=(git curl wget)
-            ;;
+    # Compiler toolchain (used by some Neovim plugins / treesitter).
+    case "$OS_FAMILY" in
+        arch)   install_tool "base-devel" gcc base-devel "" "" "" "" "" || true ;;
+        debian) install_tool "build-essential" gcc "" build-essential "" "" "" "" || true ;;
+        rhel)   pkg_install_raw gcc gcc-c++ make >/dev/null 2>&1 || log_warning "Could not install build tools" ;;
+        suse)   pkg_install_raw gcc gcc-c++ make >/dev/null 2>&1 || log_warning "Could not install build tools" ;;
+        alpine) pkg_install_raw build-base >/dev/null 2>&1 || log_warning "Could not install build-base" ;;
+        macos)  : ;; # Xcode CLT provides the toolchain
     esac
-
-    for pkg in "${packages[@]}"; do
-        if ! command_exists "$pkg" 2>/dev/null; then
-            log_info "Installing $pkg..."
-            install_package "$pkg"
-        else
-            log_success "$pkg already installed"
-        fi
-    done
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install Zsh
+# Zsh + Oh-My-Zsh + Plugins
 # ─────────────────────────────────────────────────────────────────────────────
 
 install_zsh() {
     log_step "Installing Zsh"
-
-    if command_exists zsh; then
-        log_success "Zsh already installed"
-    else
-        log_info "Installing Zsh..."
-        install_package zsh
-        log_success "Zsh installed"
-    fi
+    install_tool "zsh" zsh zsh zsh zsh zsh zsh zsh || true
 }
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Install Oh-My-Zsh
-# ─────────────────────────────────────────────────────────────────────────────
 
 install_oh_my_zsh() {
     log_step "Installing Oh-My-Zsh"
 
     if [[ -d "$HOME/.oh-my-zsh" ]]; then
         log_success "Oh-My-Zsh already installed"
-    else
-        log_info "Installing Oh-My-Zsh..."
-        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-        log_success "Oh-My-Zsh installed"
+        return
     fi
-}
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Install Zsh Plugins
-# ─────────────────────────────────────────────────────────────────────────────
+    log_info "Installing Oh-My-Zsh..."
+    RUNZSH=no CHSH=no sh -c \
+        "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+    log_success "Oh-My-Zsh installed"
+}
 
 install_zsh_plugins() {
     log_step "Installing Zsh Plugins"
 
     local ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
+    local plugin name url
+    local plugins=(
+        "zsh-autosuggestions|https://github.com/zsh-users/zsh-autosuggestions"
+        "zsh-syntax-highlighting|https://github.com/zsh-users/zsh-syntax-highlighting"
+        "zsh-history-substring-search|https://github.com/zsh-users/zsh-history-substring-search"
+    )
 
-    # zsh-autosuggestions
-    if [[ -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]]; then
-        log_success "zsh-autosuggestions already installed"
-    else
-        log_info "Installing zsh-autosuggestions..."
-        git clone https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
-        log_success "zsh-autosuggestions installed"
-    fi
-
-    # zsh-syntax-highlighting
-    if [[ -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
-        log_success "zsh-syntax-highlighting already installed"
-    else
-        log_info "Installing zsh-syntax-highlighting..."
-        git clone https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
-        log_success "zsh-syntax-highlighting installed"
-    fi
-
-    # zsh-history-substring-search
-    if [[ -d "$ZSH_CUSTOM/plugins/zsh-history-substring-search" ]]; then
-        log_success "zsh-history-substring-search already installed"
-    else
-        log_info "Installing zsh-history-substring-search..."
-        git clone https://github.com/zsh-users/zsh-history-substring-search "$ZSH_CUSTOM/plugins/zsh-history-substring-search"
-        log_success "zsh-history-substring-search installed"
-    fi
+    for plugin in "${plugins[@]}"; do
+        name="${plugin%%|*}"
+        url="${plugin#*|}"
+        if [[ -d "$ZSH_CUSTOM/plugins/$name" ]]; then
+            log_success "$name already installed"
+        else
+            log_info "Installing $name..."
+            git clone --depth=1 "$url" "$ZSH_CUSTOM/plugins/$name"
+            log_success "$name installed"
+        fi
+    done
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install Neovim
+# Neovim
 # ─────────────────────────────────────────────────────────────────────────────
 
 install_neovim() {
     log_step "Installing Neovim"
-
-    if command_exists nvim; then
-        local nvim_version
-        nvim_version=$(nvim --version | head -1)
-        log_success "Neovim already installed: $nvim_version"
-    else
-        log_info "Installing Neovim..."
-
-        case $PACKAGE_MANAGER in
-            pacman)
-                sudo pacman -S --noconfirm --needed neovim
-                ;;
-            apt)
-                # Use the PPA for latest Neovim on Debian/Ubuntu
-                if ! grep -q "neovim-ppa/unstable" /etc/apt/sources.list.d/* 2>/dev/null; then
-                    sudo apt-get install -y software-properties-common
-                    sudo add-apt-repository -y ppa:neovim-ppa/unstable
-                    sudo apt-get update
-                fi
-                sudo apt-get install -y neovim
-                ;;
-            dnf)
-                sudo dnf install -y neovim
-                ;;
-            zypper)
-                sudo zypper install -y neovim
-                ;;
-            brew)
-                brew install neovim
-                ;;
-        esac
-
-        log_success "Neovim installed"
-    fi
+    install_tool "neovim" nvim neovim neovim neovim neovim neovim neovim || true
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install Kitty Terminal
+# Kitty Terminal
 # ─────────────────────────────────────────────────────────────────────────────
 
 install_kitty() {
@@ -318,215 +307,135 @@ install_kitty() {
 
     if command_exists kitty; then
         log_success "Kitty already installed"
-    else
-        log_info "Installing Kitty..."
-
-        case $PACKAGE_MANAGER in
-            pacman)
-                sudo pacman -S --noconfirm --needed kitty
-                ;;
-            apt)
-                sudo apt-get install -y kitty
-                ;;
-            dnf)
-                sudo dnf install -y kitty
-                ;;
-            zypper)
-                sudo zypper install -y kitty
-                ;;
-            brew)
-                brew install --cask kitty
-                ;;
-        esac
-
-        log_success "Kitty installed"
+        return
     fi
+
+    if [[ "$PKG" == "brew" ]]; then
+        log_info "Installing Kitty (cask)..."
+        brew install --cask kitty && log_success "Kitty installed" \
+            || log_warning "Could not install Kitty"
+        return
+    fi
+
+    install_tool "kitty" kitty kitty kitty kitty kitty kitty kitty || true
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install Modern CLI Tools
+# Modern CLI Tools
 # ─────────────────────────────────────────────────────────────────────────────
 
 install_cli_tools() {
     log_step "Installing Modern CLI Tools"
 
-    # eza/exa (modern ls replacement)
+    # eza (modern ls). Falls back to exa where eza is unavailable.
     if command_exists eza || command_exists exa; then
         log_success "eza/exa already installed"
     else
-        log_info "Installing eza (modern ls)..."
-        case $PACKAGE_MANAGER in
-            pacman)
-                sudo pacman -S --noconfirm --needed eza
-                ;;
-            apt)
-                # eza might not be in default repos, try installing
-                sudo apt-get install -y eza 2>/dev/null || sudo apt-get install -y exa 2>/dev/null || log_warning "eza/exa not available in repos"
-                ;;
-            dnf)
-                sudo dnf install -y eza 2>/dev/null || sudo dnf install -y exa 2>/dev/null || log_warning "eza/exa not available"
-                ;;
-            brew)
-                brew install eza
-                ;;
-            *)
-                log_warning "eza not available for this OS"
-                ;;
-        esac
+        install_tool "eza" eza eza eza eza eza eza eza \
+            || install_tool "exa" exa exa exa exa exa exa exa
     fi
 
-    # bat (modern cat replacement)
+    # bat (modern cat). On Debian/Ubuntu the binary is "batcat".
     if command_exists bat || command_exists batcat; then
         log_success "bat already installed"
     else
-        log_info "Installing bat (modern cat)..."
-        case $PACKAGE_MANAGER in
-            pacman)
-                sudo pacman -S --noconfirm --needed bat
-                ;;
-            apt)
-                sudo apt-get install -y bat
-                # On Ubuntu/Debian, bat is installed as batcat
-                if command_exists batcat && ! command_exists bat; then
-                    mkdir -p "$HOME/.local/bin"
-                    ln -sf "$(which batcat)" "$HOME/.local/bin/bat"
-                fi
-                ;;
-            dnf)
-                sudo dnf install -y bat
-                ;;
-            brew)
-                brew install bat
-                ;;
-        esac
+        install_tool "bat" bat bat bat bat bat bat bat || true
     fi
 
-    # fd (modern find replacement)
+    # fd (modern find). On Debian/Ubuntu the package is "fd-find" / binary "fdfind".
     if command_exists fd || command_exists fdfind; then
         log_success "fd already installed"
     else
-        log_info "Installing fd (modern find)..."
-        case $PACKAGE_MANAGER in
-            pacman)
-                sudo pacman -S --noconfirm --needed fd
-                ;;
-            apt)
-                sudo apt-get install -y fd-find
-                # On Ubuntu/Debian, fd is installed as fdfind
-                if command_exists fdfind && ! command_exists fd; then
-                    mkdir -p "$HOME/.local/bin"
-                    ln -sf "$(which fdfind)" "$HOME/.local/bin/fd"
-                fi
-                ;;
-            dnf)
-                sudo dnf install -y fd-find
-                ;;
-            brew)
-                brew install fd
-                ;;
-        esac
+        install_tool "fd" fd fd fd-find fd-find fd fd fd || true
     fi
 
     # fzf (fuzzy finder)
-    if command_exists fzf; then
-        log_success "fzf already installed"
-    else
-        log_info "Installing fzf (fuzzy finder)..."
-        case $PACKAGE_MANAGER in
-            pacman)
-                sudo pacman -S --noconfirm --needed fzf
-                ;;
-            apt)
-                sudo apt-get install -y fzf
-                ;;
-            dnf)
-                sudo dnf install -y fzf
-                ;;
-            brew)
-                brew install fzf
-                ;;
-        esac
-    fi
+    install_tool "fzf" fzf fzf fzf fzf fzf fzf fzf || true
 
-    # ripgrep (modern grep replacement)
-    if command_exists rg; then
-        log_success "ripgrep already installed"
-    else
-        log_info "Installing ripgrep (modern grep)..."
-        case $PACKAGE_MANAGER in
-            pacman)
-                sudo pacman -S --noconfirm --needed ripgrep
-                ;;
-            apt)
-                sudo apt-get install -y ripgrep
-                ;;
-            dnf)
-                sudo dnf install -y ripgrep
-                ;;
-            brew)
-                brew install ripgrep
-                ;;
-        esac
+    # ripgrep (modern grep)
+    install_tool "ripgrep" rg ripgrep ripgrep ripgrep ripgrep ripgrep ripgrep || true
+
+    # Create convenience symlinks for Debian's renamed binaries.
+    if command_exists batcat && ! command_exists bat; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+        log_success "Linked batcat -> ~/.local/bin/bat"
+    fi
+    if command_exists fdfind && ! command_exists fd; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+        log_success "Linked fdfind -> ~/.local/bin/fd"
     fi
 
     log_success "CLI tools installation complete"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install Nerd Fonts
+# Nerd Fonts (FiraCode)
 # ─────────────────────────────────────────────────────────────────────────────
 
 install_nerd_fonts() {
     log_step "Installing Nerd Fonts (FiraCode)"
 
     local FONT_DIR
-    if [[ "$OS" == "macos" ]]; then
+    if [[ "$OS_FAMILY" == "macos" ]]; then
         FONT_DIR="$HOME/Library/Fonts"
     else
         FONT_DIR="$HOME/.local/share/fonts"
     fi
 
-    # Check if FiraCode Nerd Font is already installed
     if fc-list 2>/dev/null | grep -qi "FiraCode.*Nerd" || [[ -f "$FONT_DIR/FiraCodeNerdFont-Regular.ttf" ]]; then
         log_success "FiraCode Nerd Font already installed"
         return 0
     fi
 
-    # For Arch, use the AUR package or official repos
-    if [[ "$PACKAGE_MANAGER" == "pacman" ]]; then
-        if pacman -Qi ttf-firacode-nerd &>/dev/null; then
-            log_success "FiraCode Nerd Font already installed via pacman"
+    # Native package where available (Arch).
+    if [[ "$PKG" == "pacman" ]]; then
+        if sudo pacman -S --noconfirm --needed ttf-firacode-nerd 2>/dev/null; then
+            log_success "FiraCode Nerd Font installed via pacman"
             return 0
         fi
-        log_info "Installing FiraCode Nerd Font via pacman..."
-        sudo pacman -S --noconfirm --needed ttf-firacode-nerd
-        log_success "FiraCode Nerd Font installed"
-        return 0
     fi
 
-    # For other systems, download from GitHub
+    # Otherwise download from the Nerd Fonts release.
     log_info "Downloading FiraCode Nerd Font..."
     mkdir -p "$FONT_DIR"
 
     local TEMP_DIR
     TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR"
-
-    curl -fLo "FiraCode.zip" "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip"
-    unzip -q "FiraCode.zip" -d "$FONT_DIR"
-    rm -rf "$TEMP_DIR"
-
-    # Refresh font cache
-    if command_exists fc-cache; then
-        fc-cache -fv "$FONT_DIR" >/dev/null 2>&1
+    if curl -fLo "$TEMP_DIR/FiraCode.zip" \
+        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip"; then
+        unzip -oq "$TEMP_DIR/FiraCode.zip" -d "$FONT_DIR"
+        command_exists fc-cache && fc-cache -f "$FONT_DIR" >/dev/null 2>&1
+        log_success "FiraCode Nerd Font installed"
+    else
+        log_warning "Could not download FiraCode Nerd Font — skipping"
     fi
-
-    cd "$DOTFILES_DIR"
-    log_success "FiraCode Nerd Font installed"
+    rm -rf "$TEMP_DIR"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Create Symlinks
+# NVM (Node Version Manager)
+# ─────────────────────────────────────────────────────────────────────────────
+
+install_nvm() {
+    log_step "Installing NVM (Node Version Manager)"
+
+    export NVM_DIR="$HOME/.config/nvm"
+
+    if [[ -d "$NVM_DIR" ]] && [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        log_success "NVM already installed"
+        return
+    fi
+
+    log_info "Installing NVM..."
+    mkdir -p "$NVM_DIR"
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+    log_success "NVM installed"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Symlinks
 # ─────────────────────────────────────────────────────────────────────────────
 
 link_config() {
@@ -547,16 +456,14 @@ link_config() {
         fi
     fi
 
-    # Ensure parent directory exists
     local parent_dir
     parent_dir="$(dirname "$dest")"
-    if [[ ! -d "$parent_dir" ]]; then
-        mkdir -p "$parent_dir"
-    fi
+    [[ -d "$parent_dir" ]] || mkdir -p "$parent_dir"
 
     if [[ -e "$dest" ]] || [[ -L "$dest" ]]; then
-        log_info "Removing existing $dest"
-        run_cmd rm -rf "$dest"
+        local backup="${dest}.backup-$(date +%Y%m%d-%H%M%S)"
+        log_info "Backing up existing $dest -> $backup"
+        run_cmd mv "$dest" "$backup"
     fi
 
     log_info "Linking $src -> $dest"
@@ -564,74 +471,55 @@ link_config() {
     log_success "Linked: $(basename "$dest")"
 }
 
+# The zshrc is generalized (uses $HOME), so a plain symlink is safe for any user.
 create_symlinks() {
     log_step "Creating Symlinks"
 
-    # Neovim config
     link_config "$NVIM_SRC" "$NVIM_DEST"
-
-    # Kitty config
     link_config "$KITTY_SRC" "$KITTY_DEST"
-
-    # Zsh config
     link_config "$ZSH_SRC" "$ZSH_DEST"
 
-    # Nginx site script (optional)
     if [[ -f "$NGINX_SITE_SRC" ]]; then
         link_config "$NGINX_SITE_SRC" "$NGINX_SITE_DEST"
-        sudo chmod +x "$NGINX_SITE_DEST" 2>/dev/null || true
+        run_cmd chmod +x "$NGINX_SITE_DEST" 2>/dev/null || true
     fi
 
-    # Cleanup script
     if [[ -f "$CLEANUP_SRC" ]]; then
         link_config "$CLEANUP_SRC" "$CLEANUP_DEST"
-        sudo chmod +x "$CLEANUP_DEST" 2>/dev/null || true
+        run_cmd chmod +x "$CLEANUP_DEST" 2>/dev/null || true
     fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Set Zsh as Default Shell
+# Default Shell
 # ─────────────────────────────────────────────────────────────────────────────
 
 set_default_shell() {
     log_step "Setting Zsh as Default Shell"
 
-    local current_shell
-    current_shell=$(basename "$SHELL")
-
-    if [[ "$current_shell" == "zsh" ]]; then
-        log_success "Zsh is already the default shell"
-    else
-        log_info "Changing default shell to Zsh..."
-        local zsh_path
-        zsh_path=$(which zsh)
-
-        # Make sure zsh is in /etc/shells
-        if ! grep -q "$zsh_path" /etc/shells 2>/dev/null; then
-            echo "$zsh_path" | sudo tee -a /etc/shells >/dev/null
-        fi
-
-        chsh -s "$zsh_path"
-        log_success "Default shell changed to Zsh (takes effect on next login)"
+    if ! command_exists zsh; then
+        log_warning "Zsh is not installed — skipping default shell change"
+        return
     fi
-}
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Install NVM (Node Version Manager)
-# ─────────────────────────────────────────────────────────────────────────────
+    if [[ "$(basename "${SHELL:-}")" == "zsh" ]]; then
+        log_success "Zsh is already the default shell"
+        return
+    fi
 
-install_nvm() {
-    log_step "Installing NVM (Node Version Manager)"
+    local zsh_path
+    zsh_path="$(command -v zsh)"
 
-    export NVM_DIR="$HOME/.config/nvm"
+    if [[ -w /etc/shells ]] || command_exists sudo; then
+        if ! grep -q "^$zsh_path$" /etc/shells 2>/dev/null; then
+            echo "$zsh_path" | run_cmd tee -a /etc/shells >/dev/null
+        fi
+    fi
 
-    if [[ -d "$NVM_DIR" ]] && [[ -s "$NVM_DIR/nvm.sh" ]]; then
-        log_success "NVM already installed"
+    if chsh -s "$zsh_path" 2>/dev/null; then
+        log_success "Default shell changed to Zsh (takes effect on next login)"
     else
-        log_info "Installing NVM..."
-        mkdir -p "$NVM_DIR"
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-        log_success "NVM installed"
+        log_warning "Could not change default shell automatically. Run: chsh -s $zsh_path"
     fi
 }
 
@@ -678,22 +566,22 @@ main() {
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
-    # Detect OS
     detect_os
 
-    if [[ "$OS" == "unknown" ]]; then
-        log_error "Could not detect OS. Please install dependencies manually."
+    if [[ "$PKG" == "unknown" || -z "$PKG" ]]; then
+        log_error "Could not detect a supported package manager."
+        log_error "Supported: pacman, apt, dnf/yum, zypper, apk, brew."
+        log_error "Please install dependencies manually, then re-run for symlinks."
         exit 1
     fi
 
-    # Check for Homebrew on macOS
-    if [[ "$OS" == "macos" ]] && ! command_exists brew; then
+    # On macOS, make sure Homebrew exists first.
+    if [[ "$PKG" == "brew" ]] && ! command_exists brew; then
         log_info "Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     fi
 
-    # Run installation steps
-    update_system
+    pkg_update
     install_core_deps
     install_zsh
     install_oh_my_zsh
@@ -709,5 +597,4 @@ main() {
     print_success_message
 }
 
-# Run main function
 main "$@"

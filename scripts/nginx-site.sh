@@ -8,11 +8,15 @@ set -euo pipefail
 BOLD="\e[1m"; RED="\e[31m"; GREEN="\e[32m"; YELLOW="\e[33m"; BLUE="\e[34m"; RESET="\e[0m"
 
 PROGRAM_NAME="nginx-site"
-DEFAULT_WEBROOT_BASE="/srv/http"
 SITES_AVAILABLE="/etc/nginx/sites-available"
 SITES_ENABLED="/etc/nginx/sites-enabled"
 SSL_DIR="/etc/nginx/ssl"
 WEBGROUP="webshare"
+
+# Distro-dependent defaults, filled in by detect_distro_defaults.
+DEFAULT_WEBROOT_BASE=""
+NGINX_USER_FALLBACK=""
+DEFAULT_PHP_FPM=""
 
 log() { printf "${BLUE}[${PROGRAM_NAME}]${RESET} %s\n" "$*"; }
 fail() { printf "${RED}[${PROGRAM_NAME} ERROR] %s${RESET}\n" "$*" >&2; exit 1; }
@@ -20,10 +24,70 @@ fail() { printf "${RED}[${PROGRAM_NAME} ERROR] %s${RESET}\n" "$*" >&2; exit 1; }
 need_root() { [[ $EUID -eq 0 ]] || fail "Run with sudo."; }
 cmd_exists() { command -v "$1" >/dev/null 2>&1; }
 
+# Resolve sensible defaults from the running distribution.
+detect_distro_defaults() {
+  local family="unknown" likes=""
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck source=/dev/null
+    . /etc/os-release
+    likes=" ${ID:-} ${ID_LIKE:-} "
+  fi
+
+  if   [[ "$likes" == *" arch "* ]];                                       then family="arch"
+  elif [[ "$likes" == *" debian "* || "$likes" == *" ubuntu "* ]];         then family="debian"
+  elif [[ "$likes" == *" fedora "* || "$likes" == *" rhel "* || "$likes" == *" centos "* ]]; then family="rhel"
+  elif [[ "$likes" == *" suse "* ]];                                       then family="suse"
+  fi
+
+  case "$family" in
+    arch)
+      DEFAULT_WEBROOT_BASE="/srv/http"
+      NGINX_USER_FALLBACK="http"
+      ;;
+    debian)
+      DEFAULT_WEBROOT_BASE="/var/www"
+      NGINX_USER_FALLBACK="www-data"
+      ;;
+    rhel)
+      DEFAULT_WEBROOT_BASE="/var/www"
+      NGINX_USER_FALLBACK="nginx"
+      ;;
+    suse)
+      DEFAULT_WEBROOT_BASE="/srv/www/htdocs"
+      NGINX_USER_FALLBACK="nginx"
+      ;;
+    *)
+      # Best-effort fallback: pick a webroot and a user that probably exists.
+      DEFAULT_WEBROOT_BASE="/var/www"
+      if   id -u www-data &>/dev/null; then NGINX_USER_FALLBACK="www-data"
+      elif id -u http     &>/dev/null; then NGINX_USER_FALLBACK="http"
+      else NGINX_USER_FALLBACK="nginx"; fi
+      ;;
+  esac
+
+  DEFAULT_PHP_FPM="$(detect_php_fpm_socket)"
+}
+
+# Find a PHP-FPM unix socket if one exists, else a reasonable per-distro guess.
+detect_php_fpm_socket() {
+  local sock
+  for sock in \
+    /run/php-fpm/php-fpm.sock \
+    /run/php-fpm/www.sock \
+    /run/php/php-fpm.sock; do
+    [[ -S "$sock" ]] && { echo "unix:$sock"; return; }
+  done
+  # Versioned Debian/Ubuntu sockets, e.g. /run/php/php8.3-fpm.sock
+  sock=$(ls /run/php/php*-fpm.sock 2>/dev/null | sort -V | tail -n1 || true)
+  [[ -n "$sock" ]] && { echo "unix:$sock"; return; }
+  # Nothing running yet — guess based on what's typical for the distro.
+  if [[ -d /run/php ]]; then echo "unix:/run/php/php-fpm.sock"; else echo "unix:/run/php-fpm/php-fpm.sock"; fi
+}
+
 nginx_user() {
   local user
-  user=$(awk '/^user\s+/{print $2; exit}' /etc/nginx/nginx.conf 2>/dev/null | sed 's/;//') || true
-  [[ -z "${user:-}" ]] && { id -u http &>/dev/null && echo http || echo www-data; } || echo "$user"
+  user=$(awk '/^user[[:space:]]+/{print $2; exit}' /etc/nginx/nginx.conf 2>/dev/null | sed 's/;//') || true
+  [[ -z "${user:-}" ]] && echo "$NGINX_USER_FALLBACK" || echo "$user"
 }
 
 ensure_dirs() { mkdir -p "$SITES_AVAILABLE" "$SITES_ENABLED" "$SSL_DIR"; }
@@ -189,7 +253,7 @@ cmd_add() {
   need_root; ensure_dirs; ensure_include; ensure_group
   local domain="$1"; shift || true
   local root="$DEFAULT_WEBROOT_BASE/$domain"
-  local php_fpm="unix:/run/php-fpm/php-fpm.sock"
+  local php_fpm="$DEFAULT_PHP_FPM"
   local index="index.php index.html"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -211,7 +275,7 @@ cmd_secure() {
   need_root; ensure_dirs; ensure_include
   local domain="$1"; shift || true
   local mode="mkcert" root=""
-  local php_fpm="unix:/run/php-fpm/php-fpm.sock"
+  local php_fpm="$DEFAULT_PHP_FPM"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --mkcert) mode="mkcert"; shift;;
@@ -281,6 +345,7 @@ cmd_fix_perms() {
 }
 
 main() {
+  detect_distro_defaults
   local cmd="${1:-}"; shift || true
   case "$cmd" in
     add) cmd_add "$@";;

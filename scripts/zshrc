@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────
-# Clean Oh-My-Zsh Config (Arch / AArch)
+# Oh-My-Zsh Config (portable / cross-distro)
 # ─────────────────────────────────────────────
 
 export ZSH="$HOME/.oh-my-zsh"
@@ -33,16 +33,21 @@ if command -v bat >/dev/null 2>&1; then
 elif command -v batcat >/dev/null 2>&1; then
     alias cat='batcat --paging=never'
 fi
+
 alias grep='grep --color=auto'
 alias c='clear'
+alias cls='clear && printf "\033c"'
 alias ..='cd ..'
 alias ...='cd ../..'
-# Package manager aliases (OS-aware)
+
+# Package manager aliases (auto-detected)
 if command -v pacman >/dev/null 2>&1; then
     alias mupdate='sudo pacman -Syu'
     alias minstall='sudo pacman -S'
     alias mremove='sudo pacman -Rns'
     alias fixlock='sudo rm /var/lib/pacman/db.lck'
+    alias paclog='less /var/log/pacman.log'
+    command -v pkgfile >/dev/null 2>&1 && alias findpkg='pkgfile -v'
 elif command -v apt >/dev/null 2>&1; then
     alias mupdate='sudo apt update && sudo apt upgrade'
     alias minstall='sudo apt install'
@@ -51,26 +56,35 @@ elif command -v dnf >/dev/null 2>&1; then
     alias mupdate='sudo dnf upgrade'
     alias minstall='sudo dnf install'
     alias mremove='sudo dnf remove'
+elif command -v zypper >/dev/null 2>&1; then
+    alias mupdate='sudo zypper update'
+    alias minstall='sudo zypper install'
+    alias mremove='sudo zypper remove'
+elif command -v apk >/dev/null 2>&1; then
+    alias mupdate='sudo apk upgrade'
+    alias minstall='sudo apk add'
+    alias mremove='sudo apk del'
 elif command -v brew >/dev/null 2>&1; then
     alias mupdate='brew update && brew upgrade'
     alias minstall='brew install'
     alias mremove='brew uninstall'
 fi
+
 alias please='sudo $(history -p !!)'
-alias editz='vim ~/.zshrc && source ~/.zshrc'
+alias editz='${EDITOR:-nvim} ~/.zshrc && source ~/.zshrc'
 alias reload='source ~/.zshrc'
-alias vim='nvim'
-alias pset='sudo proton-switch'
-alias mysql='mariadb'
-alias sys_upgrade='sudo pacman -Syu'
-alias nginx-reload='sudo nginx -t && sudo nginx -s reload'
-alias ibus-setup='/usr/bin/python3 /usr/share/ibus/setup/main.py'
+command -v nvim >/dev/null 2>&1 && alias vim='nvim'
+command -v nginx >/dev/null 2>&1 && alias nginx-reload='sudo nginx -t && sudo nginx -s reload'
 
 # ─────────────────────────────────────────────
 # FZF Integration
 # ─────────────────────────────────────────────
 if command -v fzf >/dev/null 2>&1; then
-  export FZF_DEFAULT_COMMAND='fd --type f'
+  if command -v fd >/dev/null 2>&1; then
+    export FZF_DEFAULT_COMMAND='fd --type f'
+  elif command -v fdfind >/dev/null 2>&1; then
+    export FZF_DEFAULT_COMMAND='fdfind --type f'
+  fi
   [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 fi
 
@@ -83,31 +97,25 @@ SAVEHIST=10000
 setopt hist_ignore_all_dups share_history
 
 # ─────────────────────────────────────────────
-# ⚙️ Environment & Editor
+# Environment & Editor
 # ─────────────────────────────────────────────
 export EDITOR="nvim"
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-export PATH="$HOME/bin:$PATH"
+export TERM=xterm-256color
 
 # ─────────────────────────────────────────────
 # Autosuggestions & Syntax Highlight Colors
 # ─────────────────────────────────────────────
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=#555555'
-source ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 # ─────────────────────────────────────────────
-# Misc Shortcuts
+# Wayland (only when running a Wayland session)
 # ─────────────────────────────────────────────
-alias cls='clear && printf "\033c"'
-
-# Arch-specific aliases
-if command -v pacman >/dev/null 2>&1; then
-    alias paclog='cat /var/log/pacman.log | less'
-    alias findpkg='pkgfile -v'
+if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
+    export QT_QPA_PLATFORM=wayland
+    export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 fi
-
-export PATH="$PATH:/home/nprime/.config/composer/vendor/bin"
 
 # ─────────────────────────────────────────────
 # NVM (Node Version Manager)
@@ -117,43 +125,12 @@ export NVM_DIR="$HOME/.config/nvm"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 
 # ─────────────────────────────────────────────
-# PATH Configuration
+# PATH
 # ─────────────────────────────────────────────
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 
 # ─────────────────────────────────────────────
-# Terminal & Display Settings
+# Local / machine-specific overrides (not tracked)
+# Put per-machine PATH entries, aliases, tokens, etc. here.
 # ─────────────────────────────────────────────
-export TERM=xterm-256color
-
-# Wayland settings (only set if running Wayland)
-if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
-    export QT_QPA_PLATFORM=wayland
-    export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
-fi
-
-# Ibus for bangla writing
-export GTK_IM_MODULE=ibus
-export QT_IM_MODULE=ibus
-export XMODIFIERS=@im=ibus
-
-# Created by `pipx` on 2026-03-07 07:45:33
-export PATH="$PATH:/home/nprime/.local/bin"
-export PYTHONPATH="$HOME/esp-idf-nvs/components/nvs_flash/nvs_partition_generator:$PYTHONPATH"
-
-
-# bun completions
-[ -s "/home/nprime/.bun/_bun" ] && source "/home/nprime/.bun/_bun"
-
-# bun
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
-export PATH="$HOME/.local/bin:$PATH"
-
-#. "$HOME/.local/share/../bin/env"
-
-alias claude-mem='/home/nprime/.bun/bin/bun "/home/nprime/.claude/plugins/cache/thedotmack/claude-mem/10.6.2/scripts/worker-service.cjs"'
-export PATH="$HOME/.local/bin:$PATH"
-export PATH="$HOME/.local/bin:$PATH"
-alias obsidian-gui='~/Applications/Obsidian.AppImage --no-sandbox &'
-export PATH="$HOME/.config/composer/vendor/bin:$HOME/.composer/vendor/bin:$PATH"
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"

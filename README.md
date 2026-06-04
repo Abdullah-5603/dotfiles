@@ -24,13 +24,22 @@ chmod +x setup.sh
 
 ## Supported platforms
 
-The setup script auto-detects and supports:
+`setup.sh` auto-detects your distribution from `/etc/os-release` (using both
+`ID` and `ID_LIKE`, so derivatives like Linux Mint, Pop!_OS, EndeavourOS, Rocky,
+etc. are matched to their parent family). If detection is inconclusive it falls
+back to probing for an installed package manager.
 
-- Arch Linux (`pacman`)
-- Debian/Ubuntu (`apt`)
-- Fedora/RHEL (`dnf`)
-- openSUSE (`zypper`)
-- macOS (`brew`)
+| Family | Package manager | Examples |
+| --- | --- | --- |
+| Arch | `pacman` | Arch, Manjaro, EndeavourOS, Omarchy |
+| Debian | `apt` | Debian, Ubuntu, Linux Mint, Pop!_OS |
+| RHEL | `dnf` / `yum` | Fedora, RHEL, CentOS, Rocky, Alma |
+| SUSE | `zypper` | openSUSE Leap/Tumbleweed |
+| Alpine | `apk` | Alpine |
+| macOS | `brew` | macOS |
+
+If a tool isn't available in your distro's repositories, setup logs a warning
+and continues (best-effort) rather than failing.
 
 ## What `setup.sh` does
 
@@ -67,25 +76,34 @@ sudo nginx-site remove myapp.test --purge-root
 
 ### `cleanup`
 
-System cleanup helper (primarily Arch-focused), including package caches, journals, and common dev caches:
+Cross-distro system cleanup helper. Detects your package manager and trims its
+cache + removes orphans (pacman/apt/dnf/yum/zypper/apk/brew), then clears common
+dev caches (pip, Go, pnpm, Docker, JetBrains), browser caches, thumbnails, and
+vacuums the systemd journal:
 
 ```bash
-sudo cleanup
+cleanup
 ```
 
 ## Repository structure
 
 ```text
 .
-├── setup.sh
+├── setup.sh       # Cross-distro installer (auto-detects package manager)
 ├── neovim/        # Neovim configuration
 ├── kitty/         # Kitty terminal configuration
 ├── scripts/
-│   ├── zshrc
+│   ├── zshrc      # Portable zsh config (uses $HOME, no hardcoded paths)
 │   ├── nginx-site.sh
 │   └── cleanup.sh
 └── omarchy/       # Theme integration assets
 ```
+
+### Per-machine overrides
+
+`scripts/zshrc` sources `~/.zshrc.local` at the end if it exists. Put any
+machine-specific PATH entries, secrets, or personal aliases there so they stay
+out of the tracked, portable config.
 
 ## Updating
 
