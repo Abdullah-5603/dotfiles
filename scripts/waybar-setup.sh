@@ -7,6 +7,10 @@ set -euo pipefail
 # Arch Linux machine running Omarchy, so the bar looks and behaves identically
 # to the source machine (workspaces, network speed, clock, tray, etc).
 #
+# Also installs the Hyprland keybindings for workspaces 11-20 (SUPER+CTRL+
+# [1-9,0]), since the waybar config's workspace icons go up to 20 and are
+# useless without a way to actually switch to them.
+#
 # Requires: Arch Linux (pacman) + Omarchy already installed. The config calls
 # omarchy-menu / omarchy-launch-* helpers and pulls its colors from
 # ~/.config/omarchy/current/theme/waybar.css, so it only works on an Omarchy
@@ -31,6 +35,9 @@ command_exists() {
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WAYBAR_SRC="$DOTFILES_DIR/waybar"
 WAYBAR_DEST="$HOME/.config/waybar"
+WORKSPACES_SNIPPET="$WAYBAR_SRC/workspaces-11-20.conf"
+HYPR_BINDINGS="$HOME/.config/hypr/bindings.conf"
+WORKSPACES_MARKER="# Extra workspaces 11-20 with SUPER + CTRL"
 
 check_arch() {
     if ! command_exists pacman; then
@@ -79,6 +86,41 @@ link_file() {
     log_success "Linked $(basename "$dest")"
 }
 
+# Appends the workspace 11-20 keybindings to ~/.config/hypr/bindings.conf if
+# they aren't already there (idempotent — safe to re-run).
+install_workspace_bindings() {
+    if [[ ! -f "$WORKSPACES_SNIPPET" ]]; then
+        log_error "Missing source file: $WORKSPACES_SNIPPET"
+        exit 1
+    fi
+
+    if [[ ! -f "$HYPR_BINDINGS" ]]; then
+        log_warning "$HYPR_BINDINGS not found — skipping workspace 11-20 keybindings"
+        return 0
+    fi
+
+    if grep -qF "$WORKSPACES_MARKER" "$HYPR_BINDINGS"; then
+        log_success "Workspace 11-20 keybindings already present"
+        return 0
+    fi
+
+    log_info "Adding workspace 11-20 keybindings (SUPER+CTRL+[1-9,0]) to bindings.conf..."
+    {
+        echo ""
+        cat "$WORKSPACES_SNIPPET"
+    } >> "$HYPR_BINDINGS"
+    log_success "Workspace 11-20 keybindings added"
+
+    if command_exists hyprctl; then
+        hyprctl reload >/dev/null 2>&1 || true
+        local errors
+        errors="$(hyprctl configerrors 2>/dev/null || true)"
+        if [[ -n "$errors" && "$errors" != "ok" ]]; then
+            log_warning "hyprctl configerrors reported: $errors"
+        fi
+    fi
+}
+
 restart_waybar() {
     log_info "Restarting waybar..."
     if command_exists omarchy-restart-waybar; then
@@ -102,8 +144,9 @@ main() {
     install_deps
     link_file "$WAYBAR_SRC/config.jsonc" "$WAYBAR_DEST/config.jsonc"
     link_file "$WAYBAR_SRC/style.css" "$WAYBAR_DEST/style.css"
+    install_workspace_bindings
     restart_waybar
-    log_success "Waybar setup complete — layout, network speed, clock and all modules now match the source machine"
+    log_success "Waybar setup complete — layout, network speed, clock, workspaces 1-20 and all modules now match the source machine"
 }
 
 main "$@"
